@@ -1,0 +1,140 @@
+//******************************************/
+// Universidad del Valle de Guatemala
+// BE3029 - Electronica Digital 2
+// Fabiola Caballeros 24927
+// Rutina de temperatura con sensor LM35 y LEDRGB
+//******************************************/
+
+//******************************************/
+// Librerias
+//******************************************/
+#include <Arduino.h>
+#include <stdint.h>
+//#include <ESP32Servo.h>
+//#include <driver/ledc.h>
+//******************************************/
+// Definiciones
+//******************************************/
+#define boton 32
+#define sensor 27
+
+#define R 15
+#define G 4
+#define B 16
+
+//******************************************/
+// Prototipos de funciones
+//******************************************/
+void IRAM_ATTR boton_ISR();
+void colorLed(int red, int green, int blue);
+void numeroDisplay();
+void conversion_temperatura();
+
+//******************************************/
+// Variables globales
+//******************************************/
+
+volatile int check = 0;
+volatile uint32_t t1 = 0;
+
+int lectura;
+float temperatura;
+int temperatura_entero;
+
+const int byte digitos[10][7] = {
+  {1, 1, 1, 1, 1, 1, 0}, //0
+  {0, 1, 1, 0, 0, 0, 0}, //1
+  {1, 1, 0, 1, 1, 0, 1}, //2
+  {1, 1, 1, 1, 0, 0, 1}, //3
+  {0, 1, 1, 0, 0, 1, 1}, //4
+  {1, 0, 1, 1, 0, 1, 1}, //5
+  {1, 0, 1, 1, 1, 1, 1}, //6
+  {1, 1, 1, 0, 0, 0, 0}, //7
+  {1, 1, 1, 1, 1, 1, 1}, //8
+  {1, 1, 1, 0, 0, 1, 1} //9
+};
+//******************************************/
+// ISRs Rutinas de Interrupcion
+//******************************************/
+void IRAM_ATTR boton_ISR(){
+  if((millis()-t1)>200){ //antirrebote que calcula el tiempo que pasó desde la última pulsación
+    check = !check;
+    t1=millis();
+  } 
+}
+
+//******************************************/
+// Configuracion
+//******************************************/
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(12); // Configura la resolución de lectura analógica a 12 bits
+
+  pinMode(boton, INPUT_PULLDOWN);
+  pinMode(R, OUTPUT);
+  pinMode(G, OUTPUT);
+  pinMode(B, OUTPUT);
+
+  attachInterrupt(digitalPinToInterrupt(boton), boton_ISR, RISING); // Configura la interrupción para el botón
+
+}
+//******************************************/
+// Loop Principal
+//******************************************/
+void loop() {
+  
+  //detecta interrupción en el botón (checkpoint)
+  if (check == 1) {
+
+    lectura = analogRead(sensor);
+    temperatura = (lectura * 3.3 / 4095.0) * 100; // Convierte la lectura del ADC a temperatura en grados Celsius
+
+    Serial.print("Temperatura: ");
+    Serial.println(temperatura, 1); //temperatura con un decimal
+
+    if (temperatura < 23) {
+      colorLed(0, 0, 255);      // Azul
+    }
+    else if (temperatura < 25) {
+      colorLed(0, 255, 0);      // Verde
+    }
+    else if (temperatura < 27) {
+      colorLed(255, 255, 0);    // Amarillo
+    }
+    else {
+      colorLed(255, 0, 0);      // Rojo
+    }
+  } else{
+    Serial.println("Presione el botón para iniciar la lectura");
+    colorLed(0, 0, 0);          // LED apagado
+  }
+  delay(500);
+}
+
+//******************************************/
+// Otras funciones
+//******************************************/
+
+void colorLed(int red, int green, int blue){
+  analogWrite(R, red);   
+  analogWrite(G, green); 
+  analogWrite(B, blue);  
+}
+
+void numeroDisplay(int numero){
+  digitalWrite(a,digitos[numero][0]);
+  digitalWrite(b,digitos[numero][1]);
+  digitalWrite(c,digitos[numero][2]);
+  digitalWrite(d,digitos[numero][3]);
+  digitalWrite(e,digitos[numero][4]);
+  digitalWrite(f,digitos[numero][5]);
+  digitalWrite(g,digitos[numero][6]);
+}
+
+void conversion_temperatura(){
+  temperatura_entero = temperatura*10
+
+  int dec_1 = temperatura_entero / 100; // Primer dígito
+  int dec_2 = (temperatura_entero / 10) % 10; // Segundo dígito
+  int dec_3 = temperatura_entero % 10; // Tercer dígito
+}
