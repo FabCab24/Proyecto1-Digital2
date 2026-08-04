@@ -2,7 +2,7 @@
 // Universidad del Valle de Guatemala
 // BE3029 - Electronica Digital 2
 // Fabiola Caballeros 24927
-// Rutina de temperatura con sensor LM35 y LEDRGB
+// Rutina de Display 3 dígitos
 //******************************************/
 
 //******************************************/
@@ -10,25 +10,45 @@
 //******************************************/
 #include <Arduino.h>
 #include <stdint.h>
-//#include <ESP32Servo.h>
-//#include <driver/ledc.h>
+#include <driver/ledc.h>
 //******************************************/
 // Definiciones
 //******************************************/
-#define boton 32
-#define sensor 27
+#define boton 36
+#define sensor 32
 
-#define R 15
-#define G 4
-#define B 16
+#define R 13 //pines led
+#define G 14
+#define B 27
+
+#define canalR 0 //canales led
+#define canalG 1
+#define canalB 2
+#define freqLED 5000 
+#define resolutionLED 8
+
+#define a 15 // pines display
+#define b 2
+#define c 4
+#define d 16
+#define e 17
+#define f 5
+#define g 18
+#define dp 19
+
+#define digito1 22
+#define digito2 23
+#define digito3 21
 
 //******************************************/
 // Prototipos de funciones
 //******************************************/
 void IRAM_ATTR boton_ISR();
+void lucesPWM(void);
 void colorLed(int red, int green, int blue);
-void numeroDisplay();
+void numeroDisplay(int numero);
 void conversion_temperatura();
+void mostrarDisplays();
 
 //******************************************/
 // Variables globales
@@ -36,12 +56,16 @@ void conversion_temperatura();
 
 volatile int check = 0;
 volatile uint32_t t1 = 0;
+unsigned long tiempoAnterior = 0;
+uint8_t pinesDisplay[8] = {a, b, c, d, e, f, g, dp};
 
 int lectura;
 float temperatura;
 int temperatura_entero;
+int decena; int unidad; int decimal;
 
-const int byte digitos[10][7] = {
+
+const int digitos[10][7] = {
   {1, 1, 1, 1, 1, 1, 0}, //0
   {0, 1, 1, 0, 0, 0, 0}, //1
   {1, 1, 0, 1, 1, 0, 1}, //2
@@ -54,87 +78,141 @@ const int byte digitos[10][7] = {
   {1, 1, 1, 0, 0, 1, 1} //9
 };
 //******************************************/
-// ISRs Rutinas de Interrupcion
+// ISRs Rutinas de Interrupción
 //******************************************/
 void IRAM_ATTR boton_ISR(){
-  if((millis()-t1)>200){ //antirrebote que calcula el tiempo que pasó desde la última pulsación
+  if((millis()-t1)>200){ // antirrebote que calcula el tiempo que pasó desde la última pulsación
     check = !check;
     t1=millis();
   } 
 }
 
 //******************************************/
-// Configuracion
+// Configuración
 //******************************************/
 void setup() {
   Serial.begin(115200);
-  analogReadResolution(12); // Configura la resolución de lectura analógica a 12 bits
+  analogReadResolution(12); // configura la resolución de lectura analógica a 12 bits
+  
+  lucesPWM();
 
   pinMode(boton, INPUT_PULLDOWN);
-  pinMode(R, OUTPUT);
-  pinMode(G, OUTPUT);
-  pinMode(B, OUTPUT);
 
-  attachInterrupt(digitalPinToInterrupt(boton), boton_ISR, RISING); // Configura la interrupción para el botón
+  for(size_t i = 0; i < 8; i++){ // configura los pines del display como salida y los iniciali apagados
+    pinMode(pinesDisplay[i], OUTPUT);
+    digitalWrite(pinesDisplay[i], LOW);
+  }
+
+  pinMode(digito1, OUTPUT);
+  pinMode(digito2, OUTPUT);
+  pinMode(digito3, OUTPUT);
+
+  digitalWrite(digito1, HIGH);
+  digitalWrite(digito2, HIGH);
+  digitalWrite(digito3, HIGH);
+
+  attachInterrupt(digitalPinToInterrupt(boton), boton_ISR, RISING); // configura la interrupción para el botón
 
 }
 //******************************************/
 // Loop Principal
 //******************************************/
 void loop() {
-  
-  //detecta interrupción en el botón (checkpoint)
-  if (check == 1) {
+  if (check){ //detecta interrupción en el botón (checkpoint)
+    mostrarDisplays(); // refresca continuamente los displays
 
-    lectura = analogRead(sensor);
-    temperatura = (lectura * 3.3 / 4095.0) * 100; // Convierte la lectura del ADC a temperatura en grados Celsius
+    if (millis() - tiempoAnterior >= 500) { // actualiza la temperatura cada 500 ms
 
-    Serial.print("Temperatura: ");
-    Serial.println(temperatura, 1); //temperatura con un decimal
+      tiempoAnterior = millis();
 
-    if (temperatura < 23) {
-      colorLed(0, 0, 255);      // Azul
+      lectura = analogRead(sensor);
+      temperatura = (lectura * 3.3 / 4095.0) * 100;  // convierte la lectura del ADC a temperatura en grados Celsius
+
+      conversion_temperatura();
+
+      Serial.print("Temperatura: ");
+      Serial.println(temperatura, 1); // muestra temperatura con un decimal
+
+      if(temperatura < 23){
+        colorLed(0, 0, 255);  // Azul
+      }
+      else if (temperatura < 25) {
+        colorLed(0, 255, 0);  // Verde
+      }
+      else if (temperatura < 27) {
+        colorLed(255, 255, 0);  // Amarillo
+      }
+      else{
+        colorLed(255, 0, 0);  // Rojo
+      }
     }
-    else if (temperatura < 25) {
-      colorLed(0, 255, 0);      // Verde
-    }
-    else if (temperatura < 27) {
-      colorLed(255, 255, 0);    // Amarillo
-    }
-    else {
-      colorLed(255, 0, 0);      // Rojo
-    }
-  } else{
-    Serial.println("Presione el botón para iniciar la lectura");
-    colorLed(0, 0, 0);          // LED apagado
+
   }
-  delay(500);
+  else{
+    colorLed(0, 0, 0); // apagado
+
+    // Apaga los displays
+    digitalWrite(digito1, HIGH);
+    digitalWrite(digito2, HIGH);
+    digitalWrite(digito3, HIGH);
+  }
 }
 
 //******************************************/
 // Otras funciones
 //******************************************/
+void lucesPWM(void){
+  ledcSetup(canalR, freqLED, resolutionLED);
+  ledcSetup(canalG, freqLED, resolutionLED);
+  ledcSetup(canalB, freqLED, resolutionLED);
 
-void colorLed(int red, int green, int blue){
-  analogWrite(R, red);   
-  analogWrite(G, green); 
-  analogWrite(B, blue);  
+  ledcAttachPin(R, canalR);
+  ledcAttachPin(G, canalG);
+  ledcAttachPin(B, canalB);
 }
 
-void numeroDisplay(int numero){
-  digitalWrite(a,digitos[numero][0]);
-  digitalWrite(b,digitos[numero][1]);
-  digitalWrite(c,digitos[numero][2]);
-  digitalWrite(d,digitos[numero][3]);
-  digitalWrite(e,digitos[numero][4]);
-  digitalWrite(f,digitos[numero][5]);
-  digitalWrite(g,digitos[numero][6]);
+void colorLed(int red, int green, int blue){
+  ledcWrite(canalR, red);   
+  ledcWrite(canalG, green); 
+  ledcWrite(canalB, blue);  
 }
 
 void conversion_temperatura(){
-  temperatura_entero = temperatura*10
+  temperatura_entero=temperatura*10;
+  decena=temperatura_entero/100; // primer dígito
 
-  int dec_1 = temperatura_entero / 100; // Primer dígito
-  int dec_2 = (temperatura_entero / 10) % 10; // Segundo dígito
-  int dec_3 = temperatura_entero % 10; // Tercer dígito
+  temperatura_entero=temperatura_entero-(decena*100);
+  unidad=temperatura_entero/10; // segundo dígito
+   
+  temperatura_entero=temperatura_entero-(unidad*10);
+  decimal=temperatura_entero; // tercer dígito
+}
+
+void numeroDisplay(int numero){
+  for (size_t i = 0; i < 7; i++) {
+    digitalWrite(pinesDisplay[i], digitos[numero][i]);
+  }
+}
+
+void mostrarDisplays(){
+  digitalWrite(digito1, HIGH); //decena en display 1
+  digitalWrite(digito2, LOW);
+  digitalWrite(digito3, LOW);
+  numeroDisplay(decena);
+  digitalWrite(dp,LOW);
+  delay(5);
+
+  digitalWrite(digito1, LOW); //unidad y punto en display 2
+  digitalWrite(digito2, HIGH);
+  digitalWrite(digito3, LOW);
+  numeroDisplay(unidad);
+  digitalWrite(dp,HIGH);
+  delay(5);
+
+  digitalWrite(digito1, LOW); //decimal en display 3
+  digitalWrite(digito2, LOW);
+  digitalWrite(digito3, HIGH);
+  numeroDisplay(decimal);
+  digitalWrite(dp,LOW);
+  delay(5);
 }
