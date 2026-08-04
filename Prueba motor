@@ -2,7 +2,7 @@
 // Universidad del Valle de Guatemala
 // BE3029 - Electronica Digital 2
 // Fabiola Caballeros 24927
-// Rutina de temperatura con sensor LM35 y LEDRGB
+// Rutina de motor
 //******************************************/
 
 //******************************************/
@@ -10,7 +10,6 @@
 //******************************************/
 #include <Arduino.h>
 #include <stdint.h>
-#include <ESP32Servo.h>
 #include <driver/ledc.h>
 //******************************************/
 // Definiciones
@@ -28,7 +27,7 @@
 #define freqLED 5000 
 #define resolutionLED 8
 
-#define a 15
+#define a 15 // pines display
 #define b 2
 #define c 4
 #define d 16
@@ -44,7 +43,7 @@
 #define servo_motor 25
 #define canalS 3
 #define freqS 50
-#define resolutionS 16
+#define resolutionS 10
 
 //******************************************/
 // Prototipos de funciones
@@ -53,23 +52,24 @@ void IRAM_ATTR boton_ISR();
 void lucesPWM(void);
 void colorLed(int red, int green, int blue);
 void numeroDisplay(int numero);
-void mostrarDisplays();
 void conversion_temperatura();
+void mostrarDisplays();
 void motorPWM(void);
-void ventana(int angulo);
+void posicionMotor(int grados);
 
 //******************************************/
 // Variables globales
 //******************************************/
-
 volatile int check = 0;
 volatile uint32_t t1 = 0;
+unsigned long tiempoAnterior = 0;
+uint8_t pinesDisplay[8] = {a, b, c, d, e, f, g, dp};
 
 int lectura;
 float temperatura;
 int temperatura_entero;
-int dec_1; int dec_2; int dec_3;
-unsigned long tiempoAnterior = 0;
+int decena; int unidad; int decimal;
+
 
 const int digitos[10][7] = {
   {1, 1, 1, 1, 1, 1, 0}, //0
@@ -87,7 +87,7 @@ const int digitos[10][7] = {
 // ISRs Rutinas de Interrupción
 //******************************************/
 void IRAM_ATTR boton_ISR(){
-  if((millis()-t1)>200){ //antirrebote que calcula el tiempo que pasó desde la última pulsación
+  if((millis()-t1)>200){ // antirrebote que calcula el tiempo que pasó desde la última pulsación
     check = !check;
     t1=millis();
   } 
@@ -98,86 +98,73 @@ void IRAM_ATTR boton_ISR(){
 //******************************************/
 void setup() {
   Serial.begin(115200);
-  analogReadResolution(12); // Configura la resolución de lectura analógica a 12 bits
+  analogReadResolution(12); // configura la resolución de lectura analógica a 12 bits
   
   lucesPWM();
-  Servo motor;
-  motor.attach(servo_motor);
+  motorPWM();
 
   pinMode(boton, INPUT);
-  pinMode(a, OUTPUT);
-  pinMode(b, OUTPUT);
-  pinMode(c, OUTPUT);
-  pinMode(d, OUTPUT);
-  pinMode(e, OUTPUT);
-  pinMode(f, OUTPUT);
-  pinMode(g, OUTPUT);
-  pinMode(dp, OUTPUT);
+
+  for(size_t i = 0; i < 8; i++){ // configura los pines del display como salida y los iniciali apagados
+    pinMode(pinesDisplay[i], OUTPUT);
+    digitalWrite(pinesDisplay[i], LOW);
+  }
 
   pinMode(digito1, OUTPUT);
   pinMode(digito2, OUTPUT);
   pinMode(digito3, OUTPUT);
 
-  attachInterrupt(digitalPinToInterrupt(boton), boton_ISR, RISING); // Configura la interrupción para el botón
+  digitalWrite(digito1, LOW);
+  digitalWrite(digito2, LOW);
+  digitalWrite(digito3, LOW);
 
-  digitalWrite(a, HIGH);
-  digitalWrite(b, HIGH);
-  digitalWrite(c, HIGH);
-  digitalWrite(d, HIGH);
-  digitalWrite(e, HIGH);
-  digitalWrite(f, HIGH);
-  digitalWrite(g, LOW);
+  attachInterrupt(digitalPinToInterrupt(boton), boton_ISR, RISING); // configura la interrupción para el botón
 
-  digitalWrite(digito1, HIGH);
 }
 //******************************************/
 // Loop Principal
 //******************************************/
 void loop() {
-  if (check == 1) {
-
-    // Refresca continuamente los displays
-    mostrarDisplays();
-
-    // Lee la temperatura cada 500 ms
-    if (millis() - tiempoAnterior >= 500) {
+  if (check){ //detecta interrupción en el botón (checkpoint)
+    mostrarDisplays(); // refresca continuamente los displays
+    
+    if (millis() - tiempoAnterior >= 500) { // actualiza la temperatura cada 500 ms
 
       tiempoAnterior = millis();
 
       lectura = analogRead(sensor);
-      temperatura = (lectura * 3.3 / 4095.0) * 100;
+      temperatura = (lectura * 3.3 / 4095.0) * 100;  // convierte la lectura del ADC a temperatura en grados Celsius
 
       conversion_temperatura();
 
       Serial.print("Temperatura: ");
-      Serial.println(temperatura, 1);
+      Serial.println(temperatura, 1); // muestra temperatura con un decimal
 
-      if (temperatura < 23) {
-        colorLed(0, 0, 255); // azul
-        ventana(0); // cerrado
+      if(temperatura < 23){
+        colorLed(0, 0, 255);  // Azul
+        posicionMotor(0); // cerrado
       }
       else if (temperatura < 25) {
-        colorLed(0, 255, 0); // verde
-        ventana(45); // medio
+        colorLed(0, 255, 0);  // Verde
+        posicionMotor(45); // medio
       }
       else if (temperatura < 27) {
-        colorLed(255, 255, 0); // amarillo
-        ventana(45); // medio
+        colorLed(255, 255, 0);  // Amarillo
+        posicionMotor(45); // medio
       }
-      else {
-        colorLed(255, 0, 0); //rojo
-        ventana(90); //abierto
+      else{
+        colorLed(255, 0, 0);  // Rojo
+        posicionMotor(90); // abierto
       }
     }
+
   }
-  else {
-
-    colorLed(0,0,0);
-
-    // Apaga los displays
-    digitalWrite(digito1, HIGH);
-    digitalWrite(digito2, HIGH);
-    digitalWrite(digito3, HIGH);
+  else{
+    colorLed(0, 0, 0); // apagado
+    posicionMotor(0); // cerrado
+    digitalWrite(digito1, LOW); // displays apagados
+    digitalWrite(digito2, LOW);
+    digitalWrite(digito3, LOW);
   }
 }
 
@@ -194,11 +181,6 @@ void lucesPWM(void){
   ledcAttachPin(B, canalB);
 }
 
-void motorPWM(void){
-  ledcSetup(canalS, freqS, resolutionS);
-  ledcAttachPin(servo_motor, canalS);
-}
-
 void colorLed(int red, int green, int blue){
   ledcWrite(canalR, red);   
   ledcWrite(canalG, green); 
@@ -206,53 +188,64 @@ void colorLed(int red, int green, int blue){
 }
 
 void conversion_temperatura(){
-  temperatura_entero = temperatura*10;
+  temperatura_entero=temperatura*10;
+  decena=temperatura_entero/100; // primer dígito
 
-  dec_1 = temperatura_entero / 100; // Primer dígito
-  dec_2 = (temperatura_entero / 10) % 10; // Segundo dígito
-  dec_3 = temperatura_entero % 10; // Tercer dígito
+  temperatura_entero=temperatura_entero-(decena*100);
+  unidad=temperatura_entero/10; // segundo dígito
+   
+  temperatura_entero=temperatura_entero-(unidad*10);
+  decimal=temperatura_entero; // tercer dígito
 }
 
-void numeroDisplay(int numero){ //enciende segmentos por dígito
- digitalWrite(a, digitos[numero][0]);
- digitalWrite(b, digitos[numero][1]);
- digitalWrite(c, digitos[numero][2]);
- digitalWrite(d, digitos[numero][3]);
- digitalWrite(e, digitos[numero][4]);
- digitalWrite(f, digitos[numero][5]);
- digitalWrite(g, digitos[numero][6]);
+void numeroDisplay(int numero){
+  for (size_t i = 0; i < 7; i++) {
+    digitalWrite(pinesDisplay[i], digitos[numero][i]);
+  }
 }
 
-void mostrarDisplays()
-{
-    // Apaga los tres displays
-    digitalWrite(digito1, HIGH);
-    digitalWrite(digito2, HIGH);
-    digitalWrite(digito3, HIGH);
+void mostrarDisplays(){
+  digitalWrite(digito1, HIGH); //decena en display 1
+  digitalWrite(digito2, LOW);
+  digitalWrite(digito3, LOW);
+  numeroDisplay(decena);
+  digitalWrite(dp,LOW);
+  delay(5);
 
-    // Display 1
-    numeroDisplay(dec_1);
-    digitalWrite(dp, LOW);          // Sin punto
-    digitalWrite(digito1, LOW);     // Enciende
-    delay(2);
-    digitalWrite(digito1, HIGH);    // Apaga
+  digitalWrite(digito1, LOW); //unidad y punto en display 2
+  digitalWrite(digito2, HIGH);
+  digitalWrite(digito3, LOW);
+  numeroDisplay(unidad);
+  digitalWrite(dp,HIGH);
+  delay(5);
 
-    // Display 2
-    numeroDisplay(dec_2);
-    digitalWrite(dp, HIGH);         // Punto decimal
-    digitalWrite(digito2, LOW);
-    delay(2);
-    digitalWrite(digito2, HIGH);
-
-    // Display 3
-    numeroDisplay(dec_3);
-    digitalWrite(dp, LOW);
-    digitalWrite(digito3, LOW);
-    delay(2);
-    digitalWrite(digito3, HIGH);
+  digitalWrite(digito1, LOW); //decimal en display 3
+  digitalWrite(digito2, LOW);
+  digitalWrite(digito3, HIGH);
+  numeroDisplay(decimal);
+  digitalWrite(dp,LOW);
+  delay(5);
 }
 
-void ventana(int angulo){
-  int duty = map(angulo, 0, 180, 1000, 9000); // Convierte el ángulo a un valor de duty cycle
-  ledcWrite(canalS, duty); // Escribe el valor de duty cycle en el canal del servo
+void motorPWM(void){
+  ledcSetup(canalS, freqS, resolutionS);
+  ledcAttachPin(servo_motor, canalS);
+}
+
+void posicionMotor(int grados){
+
+  switch(grados){
+
+    case 0:
+      ledcWrite(canalS, 51); // duty cycle para 0 grados
+      break;
+
+    case 45:
+      ledcWrite(canalS, 77); // duty cycle para 45 grados
+      break;
+
+    case 90:
+      ledcWrite(canalS, 102); //duty cycle para 90 grados
+      break;
+  }
 }
