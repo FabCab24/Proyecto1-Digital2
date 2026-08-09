@@ -1,2 +1,4 @@
 # Proyecto1-Digital2
-Sistema de monitoreo para cadena de frío
+Sistema de monitoreo para cadena de frío.
+
+Los sistemas de monitoreo de temperatura son muy importantes en aplicaciones para el mantenimiento y conservación de alimentos, medicamentos y otros productos sensibles a cambios térmicos, ya que permiten detectar condiciones que podrían afectar su calidad o estado. En este proyecto se desarrolló un sistema utilizando un ESP32 capaz de medir la temperatura mediante un sensor LM35 y proporcionar una respuesta visual y mecánica según el rango detectado. El sistema usa un LED RGB como indicador de estado, un display de tres dígitos para mostrar la temperatura y un servomotor para representar la apertura o cierre de una ventana. Además, las mediciones son transmitidas mediante Wi-Fi a Adafruit IO, permitiendo visualizar y monitorear los datos de temperatura de forma remota. 
