@@ -11,6 +11,9 @@
 #include <Arduino.h>
 #include <stdint.h>
 #include <driver/ledc.h>
+
+#include "config.h"
+
 //******************************************/
 // Definiciones
 //******************************************/
@@ -35,12 +38,11 @@
 #define f 5
 #define g 18
 #define dp 19
-
 #define digito1 22
 #define digito2 23
 #define digito3 21
 
-#define servo_motor 25
+#define servo_motor 25 // canal servomotor
 #define canalS 3
 #define freqS 50
 #define resolutionS 10
@@ -53,9 +55,11 @@ void lucesPWM(void);
 void colorLed(int red, int green, int blue);
 void numeroDisplay(int numero);
 void conversion_temperatura();
-void mostrarDisplays();
 void motorPWM(void);
 void posicionMotor(int grados);
+void IRAM_ATTR multiplex_ISR();
+
+//void handleMessage(AdafruitIO_Data *data);
 
 //******************************************/
 // Variables globales
@@ -69,7 +73,13 @@ uint8_t pinesDisplay[8] = {a, b, c, d, e, f, g, dp};
 int lectura;
 float temperatura;
 int temperatura_entero;
-int decena; int unidad; int decimal;
+volatile int decena; 
+volatile int unidad;
+volatile int decimal;
+
+hw_timer_t *timerDisplay = NULL;
+volatile int displayActual = 0;
+//unsigned long tiempoDisplay = 0;
 
 
 const int digitos[10][7] = {
@@ -84,6 +94,10 @@ const int digitos[10][7] = {
   {1, 1, 1, 1, 1, 1, 1}, //8
   {1, 1, 1, 0, 0, 1, 1} //9
 };
+
+//unsigned long lastUpdate = 0;
+AdafruitIO_Feed *feedcadenafrio = io.feed("cadenafrio");
+
 //******************************************/
 // ISRs Rutinas de Interrupción
 //******************************************/
@@ -94,12 +108,54 @@ void IRAM_ATTR boton_ISR(){
   } 
 }
 
+void IRAM_ATTR multiplex_ISR() {
+
+  // Apagar los 3 displays
+  digitalWrite(digito1, LOW);
+  digitalWrite(digito2, LOW);
+  digitalWrite(digito3, LOW);
+
+  // Si el sistema está apagado, salir
+  if (check == 0) {
+    return;
+  }
+
+  // Seleccionar el dígito
+  if (displayActual == 0) {
+
+    numeroDisplay(decena);
+    digitalWrite(dp, LOW);
+    digitalWrite(digito1, HIGH);
+
+  }
+  else if (displayActual == 1) {
+
+    numeroDisplay(unidad);
+    digitalWrite(dp, HIGH);
+    digitalWrite(digito2, HIGH);
+
+  }
+  else {
+
+    numeroDisplay(decimal);
+    digitalWrite(dp, LOW);
+    digitalWrite(digito3, HIGH);
+
+  }
+
+  displayActual++;
+
+  if (displayActual >= 3) {
+    displayActual = 0;
+  }
+}
+
+
 //******************************************/
 // Configuración
 //******************************************/
 void setup() {
   Serial.begin(115200);
-  Serial.println("Presione el boton para leer temperatura");
   mensaje = 1;
 
   analogReadResolution(12); // configura la resolución de lectura analógica a 12 bits
@@ -122,8 +178,26 @@ void setup() {
   digitalWrite(digito2, LOW);
   digitalWrite(digito3, LOW);
 
+  timerDisplay = timerBegin(0, 80, true);
+  timerAttachInterrupt(timerDisplay, &multiplex_ISR, true);
+  timerAlarmWrite(timerDisplay, 2000, true);
+  timerAlarmEnable(timerDisplay);
+
   attachInterrupt(digitalPinToInterrupt(boton), boton_ISR, RISING); // configura la interrupción para el botón
 
+  io.connect();
+
+  // wait for a connection
+  while (io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+
+  // we are connected
+  Serial.println();
+  Serial.println(io.statusText());
+  //feedcadenafrio->get();
+  Serial.println("Presione el boton para leer temperatura");
 }
 //******************************************/
 // Loop Principal
@@ -131,14 +205,17 @@ void setup() {
 
 void loop() {
 
-  // SISTEMA ACTIVADO
-  if (check == 1) {
+  io.run();
 
-    // Leer temperatura solamente una vez
+  if (check == 1) {
+  
+
     if (lecturaRealizada == 0) {
 
       lectura = analogRead(sensor);
-      temperatura = (lectura * 3.3 / 4095.0) * 100;
+
+      temperatura =
+        (lectura * 3.3 / 4095.0) * 100;
 
       conversion_temperatura();
 
@@ -146,52 +223,39 @@ void loop() {
       Serial.print(temperatura, 1);
       Serial.println(" C");
 
-      // LED y servo según temperatura
+      feedcadenafrio->save(temperatura);
+
       if (temperatura < 23) {
-        colorLed(0, 255, 0); // azul
-        posicionMotor(45); // ventana cerrada
+        colorLed(0, 0, 255);
+        posicionMotor(0);
       }
+
       else if (temperatura < 25) {
-        colorLed(0, 255, 0); // verde
-        posicionMotor(45); // ventana medio abierta
+        colorLed(0, 255, 0);
+        posicionMotor(45);
       }
+
       else if (temperatura < 27) {
-        colorLed(255, 130, 0); // amarillo
-        posicionMotor(45); // ventana medio abierta
+        colorLed(255, 130, 0);
+        posicionMotor(45);
       }
+
       else {
-        colorLed(255, 0, 0); // rojo
-        posicionMotor(90); // ventana abierta
+        colorLed(255, 0, 0);
+        posicionMotor(90);
       }
 
       lecturaRealizada = 1;
       mensaje = 0;
     }
-
-    // Mantener la temperatura en los displays
-    mostrarDisplays();
   }
 
-  // SISTEMA DESACTIVADO
   else {
-
-    // Apagar LED
     colorLed(0, 0, 0);
-
-    // Cerrar ventana
     posicionMotor(0);
-
-    // Apagar displays
-    digitalWrite(digito1, LOW);
-    digitalWrite(digito2, LOW);
-    digitalWrite(digito3, LOW);
-
-    // Preparar siguiente lectura
     lecturaRealizada = 0;
 
-    // Mostrar mensaje solamente UNA vez
     if (mensaje == 0) {
-
       Serial.println("Presione el boton para leer temperatura");
       mensaje = 1;
     }
@@ -235,29 +299,6 @@ void numeroDisplay(int numero){
   }
 }
 
-void mostrarDisplays(){
-  digitalWrite(digito1, HIGH); //decena en display 1
-  digitalWrite(digito2, LOW);
-  digitalWrite(digito3, LOW);
-  numeroDisplay(decena);
-  digitalWrite(dp,LOW);
-  delay(5);
-
-  digitalWrite(digito1, LOW); //unidad y punto en display 2
-  digitalWrite(digito2, HIGH);
-  digitalWrite(digito3, LOW);
-  numeroDisplay(unidad);
-  digitalWrite(dp,HIGH);
-  delay(5);
-
-  digitalWrite(digito1, LOW); //decimal en display 3
-  digitalWrite(digito2, LOW);
-  digitalWrite(digito3, HIGH);
-  numeroDisplay(decimal);
-  digitalWrite(dp,LOW);
-  delay(5);
-}
-
 void motorPWM(void){
   ledcSetup(canalS, freqS, resolutionS);
   ledcAttachPin(servo_motor, canalS);
@@ -279,3 +320,4 @@ void posicionMotor(int grados){
       break;
   }
 }
+
