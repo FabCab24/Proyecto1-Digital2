@@ -59,8 +59,6 @@ void motorPWM(void);
 void posicionMotor(int grados);
 void IRAM_ATTR multiplex_ISR();
 
-//void handleMessage(AdafruitIO_Data *data);
-
 //******************************************/
 // Variables globales
 //******************************************/
@@ -79,8 +77,6 @@ volatile int decimal;
 
 hw_timer_t *timerDisplay = NULL;
 volatile int displayActual = 0;
-//unsigned long tiempoDisplay = 0;
-
 
 const int digitos[10][7] = {
   {1, 1, 1, 1, 1, 1, 0}, //0
@@ -95,8 +91,8 @@ const int digitos[10][7] = {
   {1, 1, 1, 0, 0, 1, 1} //9
 };
 
-//unsigned long lastUpdate = 0;
-AdafruitIO_Feed *feedcadenafrio = io.feed("cadenafrio");
+AdafruitIO_Feed *feedcadenafrio = io.feed("cadenafrio"); // registro de datos a internet
+AdafruitIO_Feed *feedventana = io.feed("ventana");
 
 //******************************************/
 // ISRs Rutinas de Interrupción
@@ -110,7 +106,7 @@ void IRAM_ATTR boton_ISR(){
 
 void IRAM_ATTR multiplex_ISR() {
 
-  // Apagar los 3 displays
+  // Apagar los 3 displays //interrupción para activación de dígitos de display
   digitalWrite(digito1, LOW);
   digitalWrite(digito2, LOW);
   digitalWrite(digito3, LOW);
@@ -156,7 +152,7 @@ void IRAM_ATTR multiplex_ISR() {
 //******************************************/
 void setup() {
   Serial.begin(115200);
-  mensaje = 1;
+  mensaje = 1; // indicador de toma de datos
 
   analogReadResolution(12); // configura la resolución de lectura analógica a 12 bits
   
@@ -185,18 +181,15 @@ void setup() {
 
   attachInterrupt(digitalPinToInterrupt(boton), boton_ISR, RISING); // configura la interrupción para el botón
 
-  io.connect();
+  io.connect(); // código para conexión al Adafruit
 
-  // wait for a connection
   while (io.status() < AIO_CONNECTED) {
     Serial.print(".");
     delay(500);
   }
 
-  // we are connected
   Serial.println();
   Serial.println(io.statusText());
-  //feedcadenafrio->get();
   Serial.println("Presione el boton para leer temperatura");
 }
 //******************************************/
@@ -210,12 +203,11 @@ void loop() {
   if (check == 1) {
   
 
-    if (lecturaRealizada == 0) {
+    if (lecturaRealizada == 0) { // indicador de toma de datos
 
       lectura = analogRead(sensor);
 
-      temperatura =
-        (lectura * 3.3 / 4095.0) * 100;
+      temperatura = ((lectura * 3.3 / 4095.0) * 100); // convierte el ADC crudo del sensor en grados celsius
 
       conversion_temperatura();
 
@@ -223,35 +215,39 @@ void loop() {
       Serial.print(temperatura, 1);
       Serial.println(" C");
 
-      feedcadenafrio->save(temperatura);
+      feedcadenafrio->save(temperatura); // guarda valor en feed cadenafrio
 
       if (temperatura < 23) {
-        colorLed(0, 0, 255);
-        posicionMotor(0);
+        colorLed(0, 0, 255); // azul, riesgo por frío
+        posicionMotor(0); // cerrado
+        feedventana->save(0); // guarda valor en feed ventana
       }
 
       else if (temperatura < 25) {
-        colorLed(0, 255, 0);
-        posicionMotor(45);
+        colorLed(0, 255, 0); // verde, rango seguro
+        posicionMotor(45); // medio abierta
+        feedventana->save(45);
       }
 
       else if (temperatura < 27) {
-        colorLed(255, 130, 0);
-        posicionMotor(45);
+        colorLed(255, 130, 0); // amarillo, cerca del límite
+        posicionMotor(45); // medio abierto
+        feedventana->save(45);
       }
 
       else {
-        colorLed(255, 0, 0);
-        posicionMotor(90);
+        colorLed(255, 0, 0); // rojo, riesgo por calor
+        posicionMotor(90); // completamente abierto
+        feedventana->save(90);
       }
 
-      lecturaRealizada = 1;
+      lecturaRealizada = 1; // indicador de lectura
       mensaje = 0;
     }
   }
 
   else {
-    colorLed(0, 0, 0);
+    colorLed(0, 0, 0); // caso apagado
     posicionMotor(0);
     lecturaRealizada = 0;
 
@@ -266,7 +262,7 @@ void loop() {
 //******************************************/
 // Otras funciones
 //******************************************/
-void lucesPWM(void){
+void lucesPWM(void){ //función para definición de canales, freq y reso de LED
   ledcSetup(canalR, freqLED, resolutionLED);
   ledcSetup(canalG, freqLED, resolutionLED);
   ledcSetup(canalB, freqLED, resolutionLED);
@@ -276,13 +272,13 @@ void lucesPWM(void){
   ledcAttachPin(B, canalB);
 }
 
-void colorLed(int red, int green, int blue){
+void colorLed(int red, int green, int blue){ // función para indicar activación de colores LED por canal
   ledcWrite(canalR, red);   
   ledcWrite(canalG, green); 
   ledcWrite(canalB, blue);  
 }
 
-void conversion_temperatura(){
+void conversion_temperatura(){ // función para el cálculo del número que va en cada dígito del display, separa en decena, unidad y decimal
   temperatura_entero=temperatura*10;
   decena=temperatura_entero/100; // primer dígito
 
@@ -293,18 +289,18 @@ void conversion_temperatura(){
   decimal=temperatura_entero; // tercer dígito
 }
 
-void numeroDisplay(int numero){
+void numeroDisplay(int numero){ // función para el recorrido de los segmentos de cada display
   for (size_t i = 0; i < 7; i++) {
     digitalWrite(pinesDisplay[i], digitos[numero][i]);
   }
 }
 
-void motorPWM(void){
+void motorPWM(void){ //función para definición de canales, freq y reso de motor
   ledcSetup(canalS, freqS, resolutionS);
   ledcAttachPin(servo_motor, canalS);
 }
 
-void posicionMotor(int grados){
+void posicionMotor(int grados){ // función para posicionar motor según ciclo de trabajo
   switch(grados){
 
     case 0:
